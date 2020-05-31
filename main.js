@@ -1,46 +1,77 @@
-const { app, BrowserWindow, Menu } = require('electron');
-const log = require('electron-log');
+const path = require('path');
+const { app, Menu, ipcMain, BrowserWindow } = require('electron');
+
+const Store = require('./Store');
+const MainWindow = require('./MainWindow');
+const AppTray = require('./AppTray');
 
 // Set env
-process.env.NODE_ENV = 'development';
+// process.env.NODE_ENV = 'development';
+process.env.NODE_ENV = 'production';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const isMac = process.platform === 'darwin';
 
 let mainWindow;
+let tray;
+
+// Init store & defaults
+const store = new Store({
+  configName: 'user-settings',
+  defaults: {
+    settings: {
+      cpuOverload: 80,
+      cpuAlertFrequency: 5,
+      memOverload: 98,
+      memAlertFrequency: 5
+    }
+  }
+});
 
 const createMainWindow = () => {
-  mainWindow = new BrowserWindow({
-    title: 'APP NAME',
-    width: isDev ? 800 : 500,
-    height: 600,
-    icon: `${__dirname}/assets/icons/icon.png`,
-    resizable: isDev ? true : false,
-    backgroundColor: 'white',
-    webPreferences: {
-      nodeIntegration: true,
-      enableRemoteModule: true
-    }
-  });
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
-
-  mainWindow.loadFile('./app/index.html');
+  mainWindow = new MainWindow('./app/index.html', isDev);
 };
 
 app.on('ready', () => {
   createMainWindow();
 
+  mainWindow.webContents.on('dom-ready', () => {
+    mainWindow.webContents.send('settings:get', store.get('settings'));
+  });
+
   const mainMenu = Menu.buildFromTemplate(menu);
   Menu.setApplicationMenu(mainMenu);
+
+  mainWindow.on('close', e => {
+    if (!app.isQuitting) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+
+    return true;
+  });
+
+  const icon = path.join(__dirname, 'assets', 'icons', 'tray_icon.png');
+
+  // Create tray
+  tray = new AppTray(icon, mainWindow);
+
+  mainWindow.on('closed', () => (mainWindow = null));
 });
 
 const menu = [
   ...(isMac ? [{ role: 'appMenu' }] : []),
   {
     role: 'fileMenu'
+  },
+  {
+    label: 'View',
+    submenu: [
+      {
+        label: 'Toggle Navigation',
+        click: () => mainWindow.webContents.send('nav:toggle')
+      }
+    ]
   },
   ...(isDev
     ? [
@@ -56,6 +87,12 @@ const menu = [
       ]
     : [])
 ];
+
+// Set settings
+ipcMain.on('settings:set', (e, values) => {
+  store.set('settings', values);
+  mainWindow.webContents.send('settings:get', store.get('settings'));
+});
 
 app.on('window-all-closed', () => {
   if (!isMac) {

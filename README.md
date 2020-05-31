@@ -1,6 +1,6 @@
 # SysTop
 
-CPU monitor app built with Electron
+CPU & Memory monitor app built with Electron
 
 ## Usage
 
